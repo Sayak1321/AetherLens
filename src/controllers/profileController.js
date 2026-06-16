@@ -145,6 +145,13 @@ async function analyzeProfile(req, res, next) {
 
     const { username } = req.body;
 
+    // Check if the profile already exists in our database
+    const [[existing]] = await pool.execute(
+      'SELECT id FROM profiles WHERE github_username = ?',
+      [username]
+    );
+    const isNew = !existing;
+
     const [ghUser, repos] = await Promise.all([
       githubService.fetchUserProfile(username),
       githubService.fetchUserRepos(username),
@@ -152,9 +159,14 @@ async function analyzeProfile(req, res, next) {
 
     const fullProfile = await persistAnalysis(username, ghUser, repos);
 
-    res.status(201).json({
+    const statusCode = isNew ? 201 : 200;
+    const message = isNew
+      ? `Profile '${username}' analyzed and stored successfully`
+      : `Profile '${username}' refreshed and updated successfully`;
+
+    res.status(statusCode).json({
       success: true,
-      message: `Profile '${username}' analyzed and stored successfully`,
+      message,
       data: fullProfile,
     });
   } catch (err) {
