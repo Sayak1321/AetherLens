@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AetherLens // GitHub Profile Analyzer</title>
+  <meta name="description"
+    content="Ethereal GitHub profile intelligence and analytics engine. Visualize activity scores, language breakdowns, and compare developer profiles.">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <!-- FontAwesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+  <!-- Ambient Aurora Glows -->
+  <div class="aurora-container">
+    <div class="aurora-blob blob-purple"></div>
+    <div class="aurora-blob blob-teal"></div>
+    <div class="aurora-blob blob-pink"></div>
+    <div class="aurora-blob blob-blue"></div>
+  </div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header glass-panel">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </div>
+        <div>
+          <h1 class="logo-title">AetherLens</h1>
+          <p class="logo-subtitle">GitHub Profile Intelligence</p>
+        </div>
+      </div>
+
+      <!-- System Health Indicator -->
+      <div id="health-check" class="health-badge">
+        <span class="pulse-indicator"></span>
+        <span class="health-text">Checking Systems...</span>
+        <div class="health-tooltip glass-panel">
+          <div class="tooltip-item" id="health-db">
+            <i class="fa-solid fa-database"></i> Database: <span>checking</span>
+          </div>
+          <div class="tooltip-item" id="health-github">
+            <i class="fa-brands fa-github"></i> GitHub API: <span>checking</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Left Column: Search & Stored Directory -->
+      <div class="sidebar-column">
+        <!-- Search/Analyze Box -->
+        <section class="glass-panel search-section">
+          <h2 class="section-title"><i class="fa-solid fa-magnifying-glass"></i> Analyze Profile</h2>
+          <form id="analyze-form" class="search-form">
+            <div class="input-wrapper">
+              <i class="fa-brands fa-github input-icon"></i>
+              <input type="text" id="username-input" placeholder="GitHub username..." required autocomplete="off">
+              <button type="submit" class="glow-button">
+                <span>Analyze</span>
+                <i class="fa-solid fa-sparkles"></i>
+              </button>
+            </div>
+          </form>
+          <div id="analyze-error" class="error-msg hidden"></div>
+        </section>
+
+        <!-- Stored Profiles Directory -->
+        <section class="glass-panel directory-section">
+          <div class="directory-header">
+            <h2 class="section-title"><i class="fa-solid fa-compass"></i> Stored Profiles</h2>
+            <div class="sort-selector-wrapper">
+              <label for="sort-select">Sort by:</label>
+              <select id="sort-select" class="glass-select">
+                <option value="activity_score">Activity Score</option>
+                <option value="followers">Followers</option>
+                <option value="total_stars">Total Stars</option>
+                <option value="public_repos">Public Repos</option>
+                <option value="analyzed_at">Last Analyzed</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Stored Profiles Grid/List -->
+          <div id="profiles-list" class="profiles-list-container">
+            <!-- Loading indicator -->
+            <div class="list-placeholder">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading index...
+            </div>
+          </div>
+
+          <!-- Directory Pagination -->
+          <div class="pagination-container hidden" id="pagination-controls">
+            <button id="btn-prev" class="glass-btn-icon" disabled><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="page-indicator">Page 1 of 1</span>
+            <button id="btn-next" class="glass-btn-icon" disabled><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+
+          <!-- Selection & Compare Trigger Deck -->
+          <div id="compare-deck" class="compare-deck hidden">
+            <div class="deck-info">
+              <span id="compare-count">0 / 5</span> profiles selected for comparison
+            </div>
+            <button id="btn-compare-trigger" class="glow-button secondary">
+              <span>Compare Selection</span>
+              <i class="fa-solid fa-right-left"></i>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Column: Detail View / Comparison View -->
+      <div class="details-column">
+        <!-- Welcoming Placeholder View -->
+        <div id="welcome-view" class="glass-panel welcome-panel">
+          <div class="welcome-content">
+            <i class="fa-solid fa-compass-drafting welcome-icon"></i>
+            <h2>Profile Insights</h2>
+            <p>Enter a username in the search box to analyze a new profile, or select a stored card from the index to
+              view metrics.</p>
+          </div>
+        </div>
+
+        <!-- Detail Dashboard View -->
+        <div id="detail-view" class="hidden">
+          <!-- Main User Card -->
+          <div class="glass-panel user-card-panel">
+            <div class="user-card-header">
+              <div class="user-avatar-wrapper">
+                <img id="detail-avatar" src="" alt="Avatar">
+                <div class="avatar-glow"></div>
+              </div>
+              <div class="user-identity">
+                <div class="user-header-row">
+                  <h2 id="detail-name" class="user-fullname">---</h2>
+                  <a id="detail-github-link" href="#" target="_blank" class="github-profile-link"
+                    title="Open on GitHub">
+                    <i class="fa-brands fa-github"></i>
+                  </a>
+                </div>
+                <p id="detail-username" class="user-handle">@---</p>
+                <div class="user-badges">
+                  <span id="detail-location-badge" class="badge hidden"><i class="fa-solid fa-location-dot"></i> <span
+                      class="val"></span></span>
+                  <span id="detail-company-badge" class="badge hidden"><i class="fa-solid fa-briefcase"></i> <span
+                      class="val"></span></span>
+                  <span id="detail-blog-badge" class="badge hidden"><i class="fa-solid fa-link"></i> <span
+                      class="val"></span></span>
+                </div>
+              </div>
+
+              <!-- Metric Badge: Activity Score -->
+              <div class="activity-score-meter">
+                <div class="meter-radial">
+                  <div class="meter-value" id="detail-score">0.0</div>
+                  <div class="meter-label">Activity Score</div>
+                </div>
+                <div class="score-formula-tooltip">
+                  <i class="fa-solid fa-circle-info"></i>
+                  <span class="tooltip-text glass-panel">
+                    <strong>Activity Formula:</strong><br>
+                    ★ Stars × 2.0<br>
+                    ψ Forks × 1.5<br>
+                    👥 Followers × 1.0<br>
+                    📂 Repos × 0.5
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <p id="detail-bio" class="user-bio">No bio available.</p>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-row">
+            <div class="glass-panel stat-box">
+              <span class="stat-icon icon-purple"><i class="fa-solid fa-book-bookmark"></i></span>
+              <div class="stat-info">
+                <span class="stat-label">Public Repos</span>
+                <span class="stat-value" id="stat-repos">0</span>
+              </div>
+            </div>
+            <div class="glass-panel stat-box">
+              <span class="stat-icon icon-cyan"><i class="fa-solid fa-star"></i></span>
+              <div class="stat-info">
+                <span class="stat-label">Total Stars</span>
+                <span class="stat-value" id="stat-stars">0</span>
+              </div>
+            </div>
+            <div class="glass-panel stat-box">
+              <span class="stat-icon icon-teal"><i class="fa-solid fa-code-fork"></i></span>
+              <div class="stat-info">
+                <span class="stat-label">Total Forks</span>
+                <span class="stat-value" id="stat-forks">0</span>
+              </div>
+            </div>
+            <div class="glass-panel stat-box">
+              <span class="stat-icon icon-pink"><i class="fa-solid fa-users"></i></span>
+              <div class="stat-info">
+                <span class="stat-label">Followers</span>
+                <span class="stat-value" id="stat-followers">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Languages & Repos Grid -->
+          <div class="details-grid">
+            <!-- Top Languages -->
+            <section class="glass-panel languages-panel">
+              <h3 class="section-title"><i class="fa-solid fa-chart-pie"></i> Programming Languages</h3>
+              <div id="languages-container" class="languages-list">
+                <!-- Dynamic bars -->
+              </div>
+            </section>
+
+            <!-- Repositories List -->
+            <section class="glass-panel repos-panel">
+              <h3 class="section-title"><i class="fa-solid fa-folder-open"></i> Top Repositories</h3>
+              <div id="repos-container" class="repos-list">
+                <!-- Dynamic list -->
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Profile Comparison Matrix View -->
+        <div id="compare-view" class="hidden">
+          <div class="glass-panel comparison-panel">
+            <div class="comparison-header">
+              <h2 class="section-title"><i class="fa-solid fa-right-left"></i> Profile Comparison Matrix</h2>
+              <button id="btn-close-compare" class="glass-btn-text">
+                <i class="fa-solid fa-xmark"></i> Back to Dashboard
+              </button>
+            </div>
+
+            <div class="comparison-matrix-wrapper">
+              <table class="comparison-table" id="comparison-table">
+                <thead>
+                  <tr id="compare-headers">
+                    <th>Metric</th>
+                    <!-- Dynamic Headers -->
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr id="row-avatar">
+                    <td class="metric-label">Profile</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-score">
+                    <td class="metric-label">Activity Score</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-stars">
+                    <td class="metric-label">Total Stars</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-forks">
+                    <td class="metric-label">Total Forks</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-followers">
+                    <td class="metric-label">Followers</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-repos">
+                    <td class="metric-label">Public Repos</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-location">
+                    <td class="metric-label">Location</td>
+                    <!-- Dynamic -->
+                  </tr>
+                  <tr id="row-languages">
+                    <td class="metric-label">Top Languages</td>
+                    <!-- Dynamic -->
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

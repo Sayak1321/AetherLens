@@ -1,0 +1,78 @@
+# Deployment Guide // GitHub Profile Analyzer
+
+This guide details how to deploy your GitHub Profile Analyzer web application. The application consists of a **Node.js/Express server** (which serves the Aurora UI static files and REST API) and a **MySQL Database**.
+
+---
+
+## 🚀 Option 1: Railway (PaaS) - Recommended
+
+Railway is the simplest platform for deploying this stack. It automatically spins up Node.js from GitHub and provides a managed MySQL service.
+
+### Step 1: Create a Railway Account & Project
+1. Sign in to [Railway.app](https://railway.app) using your GitHub account.
+2. Click **New Project** -> **Deploy from GitHub repo** and select your repository.
+
+### Step 2: Add a MySQL Database
+1. In your Railway project dashboard, click **New** (or `Cmd + K`) -> **Database** -> **Add MySQL**.
+2. Railway will spin up a MySQL instance and create environment variables for it.
+
+### Step 3: Configure Environment Variables
+In your Node.js Web Service settings under **Variables**, bind the following:
+- `PORT` = `3000` (Railway binds this automatically, but define it just in case)
+- `DB_HOST` = `${{MYSQLHOST}}` (using Railway reference syntax)
+- `DB_PORT` = `${{MYSQLPORT}}`
+- `DB_USER` = `${{MYSQLUSER}}`
+- `DB_PASSWORD` = `${{MYSQLPASSWORD}}`
+- `DB_NAME` = `${{MYSQLDATABASE}}`
+- `GITHUB_TOKEN` = *(Your personal GitHub fine-grained token)*
+
+### Step 4: Import Database Schema
+Use any MySQL client (e.g. TablePlus, DBeaver) or your terminal using the database connection string provided in the Railway dashboard to run the schema query:
+```bash
+mysql -h <RAILWAY_HOST> -u <RAILWAY_USER> -p<RAILWAY_PASSWORD> <RAILWAY_DATABASE> < db/schema.sql
+```
+
+---
+
+## ☁️ Option 2: Render (PaaS)
+
+Render is another popular developer-friendly platform.
+
+### Step 1: Deploy MySQL Database
+Since Render does not offer a free MySQL instance natively, you can:
+1. Spin up a Postgres database on Render instead (this would require changing the `mysql2` driver to `pg` in Node, which is not recommended).
+2. Or use a free external MySQL provider (like [Aiven.io](https://aiven.io) or [TidbCloud](https://pingcap.com/products/tidb-cloud)) and copy their connection details.
+
+### Step 2: Deploy Web Service
+1. On Render, click **New +** -> **Web Service**.
+2. Connect your GitHub repository.
+3. Configure settings:
+   - **Environment**: `Node`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+4. Under **Advanced** -> **Environment Variables**, add the variables:
+   - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+   - `GITHUB_TOKEN`
+
+---
+
+## 🐳 Option 3: VPS Self-Hosting (Docker Compose)
+
+If you are hosting on a Virtual Private Server (VPS) like DigitalOcean, Linode, AWS, or Hetzner, Docker Compose is the most robust route.
+
+We have created the necessary files in your repository. You can spin up both the server and database on your VPS by running:
+
+```bash
+docker-compose up -d
+```
+
+### Setup Details:
+- **Automatic Initialization**: The `docker-compose.yml` mounts the [schema.sql](file:///a:/antigravity/website/db/schema.sql) file into `/docker-entrypoint-initdb.d/schema.sql` inside the container. When the database boots for the first time, it will **automatically import the schema**.
+- **Container Health checks**: The Express application container waits for the database container to pass health checks before starting up.
+- **Port Mapping**: The web frontend is exposed on port `3000` of the host VPS machine.
+
+---
+
+## 🔒 Production Checklist
+- [ ] **GitHub Rate Limits**: Always generate a GitHub Personal Access Token (PAT) with `read:user` permissions and configure it as `GITHUB_TOKEN` on your hosting provider. This increases your rate limits from 60 to 5,000 requests per hour.
+- [ ] **Database Backups**: Set up cron jobs to back up the MySQL database if using a self-hosted VPS. PaaS systems like Railway handle this automatically.
