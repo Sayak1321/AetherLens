@@ -19,8 +19,6 @@ services:
 
   db:
     image: mysql:8.0
-    ports:
-      - "${DB_PORT}:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
       - MYSQL_DATABASE=${DB_NAME}
@@ -32,6 +30,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
 
 volumes:
   mysql_data:

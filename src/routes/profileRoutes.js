@@ -10,8 +10,7 @@ const validateUsername = [
   body('username')
     .trim()
     .notEmpty().withMessage('username is required')
-    .isLength({ max: 39 }).withMessage('GitHub usernames cannot exceed 39 characters')
-    .matches(/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/)
+    .matches(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/)
     .withMessage('Invalid GitHub username format'),
 ];
 

@@ -3,6 +3,7 @@ require('dotenv').config();
 const express      = require('express');
 const morgan       = require('morgan');
 const cors         = require('cors');
+const rateLimit    = require('express-rate-limit');
 const { testConnection, getDbMode } = require('./config/db');
 const { fetchRateLimit } = require('./services/githubService');
 const profileRoutes      = require('./routes/profileRoutes');
@@ -15,10 +16,49 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 // Global Middleware
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  }
+}));
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      message: "Too many requests. Please try again later."
+    }
+  }
+});
+
+const analyzeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      message: "Too many requests. Please try again later."
+    }
+  }
+});
+
+app.use(generalLimiter);
+
 app.use(express.json());
 app.use(morgan('dev'));
 app.use(express.static('public'));
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health Check
@@ -74,6 +114,7 @@ app.get('/health', async (req, res) => {
 // API Routes
 // ─────────────────────────────────────────────────────────────────────────────
 
+app.use('/api/profiles/analyze', analyzeLimiter);
 app.use('/api/profiles', profileRoutes);
 
 // 404 handler for unknown routes
