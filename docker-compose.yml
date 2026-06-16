@@ -4,12 +4,12 @@ services:
   app:
     build: .
     ports:
-      - "${PORT}:${PORT}"
+      - "3000:3000"
     environment:
-      - PORT=${PORT}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USER=${DB_USER}
+      - PORT=3000
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=root
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
@@ -19,6 +19,8 @@ services:
 
   db:
     image: mysql:8.0
+    # ports:
+    #   - "127.0.0.1:3306:3306" # Uncomment only if you need to connect from your host machine via SSH tunnel
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
       - MYSQL_DATABASE=${DB_NAME}
@@ -26,13 +28,10 @@ services:
       - mysql_data:/var/lib/mysql
       - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
-
 
 volumes:
   mysql_data:
-
