@@ -4,15 +4,15 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "${PORT}:${PORT}"
     environment:
-      - PORT=3000
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_USER=root
-      - DB_PASSWORD=your_production_password
-      - DB_NAME=github_analyzer
-      - GITHUB_TOKEN=your_github_token_here
+      - PORT=${PORT}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
     depends_on:
       db:
         condition: service_healthy
@@ -20,17 +20,19 @@ services:
   db:
     image: mysql:8.0
     ports:
-      - "3306:3306"
+      - "${DB_PORT}:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=your_production_password
-      - MYSQL_DATABASE=github_analyzer
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
   mysql_data:
+
