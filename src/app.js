@@ -5,6 +5,7 @@ const morgan       = require('morgan');
 const cors         = require('cors');
 const rateLimit    = require('express-rate-limit');
 const { testConnection, getDbMode } = require('./config/db');
+const { initializeDatabase } = require('./config/dbInit');
 const { fetchRateLimit } = require('./services/githubService');
 const profileRoutes      = require('./routes/profileRoutes');
 const errorHandler       = require('./middleware/errorHandler');
@@ -82,7 +83,7 @@ app.get('/health', async (req, res) => {
     result.services.database = { 
       status: 'ok',
       mode: dbMode,
-      ...(dbMode === 'in-memory-fallback' && { message: 'Using in-memory database fallback (MySQL is unavailable)' })
+      ...(dbMode === 'in-memory-fallback' && { message: 'Using in-memory database fallback (PostgreSQL is unavailable)' })
     };
   } catch (err) {
     result.status = 'degraded';
@@ -135,11 +136,23 @@ app.use(errorHandler);
 // Boot
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 GitHub Profile Analyzer API`);
-  console.log(`   Listening on http://localhost:${PORT}`);
-  console.log(`   Health:   GET  http://localhost:${PORT}/health`);
-  console.log(`   Profiles: POST http://localhost:${PORT}/api/profiles/analyze\n`);
-});
+async function startApp() {
+  try {
+    // Initialize database tables on startup
+    await initializeDatabase();
+    
+    app.listen(PORT, () => {
+      console.log(`\n🚀 GitHub Profile Analyzer API`);
+      console.log(`   Listening on http://localhost:${PORT}`);
+      console.log(`   Health:   GET  http://localhost:${PORT}/health`);
+      console.log(`   Profiles: POST http://localhost:${PORT}/api/profiles/analyze\n`);
+    });
+  } catch (err) {
+    console.error('❌ Failed to start app:', err.message);
+    process.exit(1);
+  }
+}
+
+startApp();
 
 module.exports = app; // Exported for testing and execution
