@@ -39,7 +39,7 @@ async function mockExecute(sql, params = []) {
   }
 
   // 2. SELECT id, github_username, name... FROM profiles ORDER BY ... LIMIT ? OFFSET ?
-  if (normalizedSql.startsWith('SELECT id, github_username, name, avatar_url, location, public_repos, followers, following, total_stars, total_forks, activity_score, analyzed_at, created_at FROM profiles ORDER BY')) {
+  if (normalizedSql.includes('SELECT id, github_username, name, avatar_url, location') && normalizedSql.includes('FROM profiles') && normalizedSql.includes('ORDER BY')) {
     const orderMatch = normalizedSql.match(/ORDER BY (\w+)(?: DESC)?/i);
     const sortField = orderMatch ? orderMatch[1] : 'activity_score';
     
@@ -325,4 +325,3 @@ function getDbMode() {
 }
 
 module.exports = { pool, testConnection, getDbMode };
-

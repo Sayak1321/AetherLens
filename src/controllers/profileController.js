@@ -176,7 +176,7 @@ async function analyzeProfile(req, res, next) {
 
 /**
  * GET /api/profiles
- * Query: page, limit, sort (followers|stars|activity_score|public_repos|analyzed_at)
+ * Query: page, limit, sort (followers|total_stars|activity_score|public_repos|analyzed_at|created_at)
  *
  * Returns a paginated list of all stored profiles (without repos/language arrays).
  */
@@ -195,16 +195,24 @@ async function getAllProfiles(req, res, next) {
 
     const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM profiles');
 
-    const [profiles] = await pool.execute(
-      `SELECT
-         id, github_username, name, avatar_url, location,
-         public_repos, followers, following, total_stars, total_forks,
-         activity_score, analyzed_at, created_at
-       FROM profiles
-       ORDER BY ${sort} DESC
-       LIMIT ? OFFSET ?`,
-      [limit, offset]
+    // Fetch all profiles without ORDER BY (to avoid prepared statement issues with column names)
+    const [allProfiles] = await pool.execute(
+      'SELECT id, github_username, name, avatar_url, location, public_repos, followers, following, total_stars, total_forks, activity_score, analyzed_at, created_at FROM profiles'
     );
+
+    // Sort in Node.js (client-side sorting)
+    const sorted = allProfiles.sort((a, b) => {
+      let valA = a[sort];
+      let valB = b[sort];
+      
+      if (typeof valA === 'string') {
+        return valB.localeCompare(valA);
+      }
+      return (valB || 0) - (valA || 0);
+    });
+
+    // Paginate
+    const profiles = sorted.slice(offset, offset + limit);
 
     res.json({
       success: true,
@@ -344,12 +352,7 @@ async function compareProfiles(req, res, next) {
     // Fetch all profiles from DB
     const placeholders = usernameList.map(() => '?').join(', ');
     const [rows] = await pool.execute(
-      `SELECT
-         id, github_username, name, avatar_url, location,
-         public_repos, public_gists, followers, following,
-         total_stars, total_forks, activity_score, analyzed_at
-       FROM profiles
-       WHERE github_username IN (${placeholders})`,
+      `SELECT id, github_username, name, avatar_url, location, public_repos, public_gists, followers, following, total_stars, total_forks, activity_score, analyzed_at FROM profiles WHERE github_username IN (${placeholders})`,
       usernameList
     );
 
