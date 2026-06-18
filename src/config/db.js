@@ -1,4 +1,4 @@
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 
 let useMock = false;
 
@@ -20,10 +20,10 @@ function isConnectionError(err) {
     code === 'ETIMEDOUT' ||
     code === 'ENOTFOUND' ||
     code === 'EADDRNOTAVAIL' ||
-    code === 'ER_ACCESS_DENIED_ERROR' ||
-    code === 'ER_BAD_DB_ERROR' ||
+    code === 'EACCES' ||
     (err.message && err.message.toLowerCase().includes('connect')) ||
-    (err.message && err.message.toLowerCase().includes('access denied'))
+    (err.message && err.message.toLowerCase().includes('password authentication failed')) ||
+    (err.message && err.message.toLowerCase().includes('does not exist'))
   );
 }
 
@@ -35,11 +35,11 @@ async function mockExecute(sql, params = []) {
 
   // 1. SELECT COUNT(*) AS total FROM profiles
   if (normalizedSql.startsWith('SELECT COUNT(*) AS total FROM profiles')) {
-    return [[{ total: memoryProfiles.length }]];
+    return { rows: [{ total: memoryProfiles.length }] };
   }
 
   // 2. SELECT id, github_username, name... FROM profiles ORDER BY ... LIMIT ? OFFSET ?
-  if (normalizedSql.includes('SELECT id, github_username, name, avatar_url, location') && normalizedSql.includes('FROM profiles') && normalizedSql.includes('ORDER BY')) {
+  if (normalizedSql.includes('SELECT id, github_username, name, avatar_url, location') && normalizedSql.includes('FROM profiles')) {
     const orderMatch = normalizedSql.match(/ORDER BY (\w+)(?: DESC)?/i);
     const sortField = orderMatch ? orderMatch[1] : 'activity_score';
     
@@ -57,51 +57,50 @@ async function mockExecute(sql, params = []) {
     });
 
     const paginated = sorted.slice(offset, offset + limit);
-    return [paginated];
+    return { rows: paginated };
   }
 
-  // 3. SELECT id FROM profiles WHERE github_username = ?
-  if (normalizedSql.startsWith('SELECT id FROM profiles WHERE github_username = ?')) {
+  // 3. SELECT id FROM profiles WHERE github_username = $1
+  if (normalizedSql.startsWith('SELECT id FROM profiles WHERE github_username = $1')) {
     const username = params[0].toLowerCase();
     const found = memoryProfiles.find(p => p.github_username.toLowerCase() === username);
-    return [found ? [found] : []];
+    return { rows: found ? [found] : [] };
   }
 
-  // 4. SELECT * FROM profiles WHERE id = ?
-  if (normalizedSql.startsWith('SELECT * FROM profiles WHERE id = ?')) {
+  // 4. SELECT * FROM profiles WHERE id = $1
+  if (normalizedSql.startsWith('SELECT * FROM profiles WHERE id = $1')) {
     const id = parseInt(params[0], 10);
     const found = memoryProfiles.find(p => p.id === id);
-    return [found ? [found] : []];
+    return { rows: found ? [found] : [] };
   }
 
-  // 5. SELECT * FROM repositories WHERE profile_id = ? ORDER BY stars DESC
-  if (normalizedSql.startsWith('SELECT * FROM repositories WHERE profile_id = ? ORDER BY stars DESC')) {
+  // 5. SELECT * FROM repositories WHERE profile_id = $1 ORDER BY stars DESC
+  if (normalizedSql.startsWith('SELECT * FROM repositories WHERE profile_id = $1 ORDER BY stars DESC')) {
     const profileId = parseInt(params[0], 10);
     const filtered = memoryRepositories.filter(r => r.profile_id === profileId);
     filtered.sort((a, b) => b.stars - a.stars);
-    return [filtered];
+    return { rows: filtered };
   }
 
-  // 6. SELECT language, repo_count FROM language_stats WHERE profile_id = ? ORDER BY repo_count DESC LIMIT 5
-  // or: SELECT language, repo_count FROM language_stats WHERE profile_id = ? ORDER BY repo_count DESC
-  if (normalizedSql.startsWith('SELECT language, repo_count FROM language_stats WHERE profile_id = ? ORDER BY repo_count DESC')) {
+  // 6. SELECT language, repo_count FROM language_stats WHERE profile_id = $1 ORDER BY repo_count DESC
+  if (normalizedSql.startsWith('SELECT language, repo_count FROM language_stats WHERE profile_id = $1 ORDER BY repo_count DESC')) {
     const profileId = parseInt(params[0], 10);
     const limitMatch = normalizedSql.match(/LIMIT (\d+)/i);
     const limit = limitMatch ? parseInt(limitMatch[1], 10) : null;
     const filtered = memoryLanguageStats.filter(l => l.profile_id === profileId);
     filtered.sort((a, b) => b.repo_count - a.repo_count);
     const results = filtered.map(l => ({ language: l.language, repo_count: l.repo_count }));
-    return [limit ? results.slice(0, limit) : results];
+    return { rows: limit ? results.slice(0, limit) : results };
   }
 
-  // 7. SELECT id, github_username, name, avatar_url, location, public_repos, public_gists, followers, following, total_stars, total_forks, activity_score, analyzed_at FROM profiles WHERE github_username IN (...)
+  // 7. SELECT ... FROM profiles WHERE github_username IN (...)
   if (normalizedSql.includes('FROM profiles WHERE github_username IN')) {
     const usernames = params.map(u => u.toLowerCase());
     const matched = memoryProfiles.filter(p => usernames.includes(p.github_username.toLowerCase()));
-    return [matched];
+    return { rows: matched };
   }
 
-  // 8. INSERT INTO profiles (...) VALUES (...) ON DUPLICATE KEY UPDATE ...
+  // 8. INSERT INTO profiles (...) VALUES (...) ON CONFLICT DO UPDATE ...
   if (normalizedSql.startsWith('INSERT INTO profiles')) {
     const colsMatch = normalizedSql.match(/INSERT INTO profiles \(([^)]+)\)/i);
     if (!colsMatch) throw new Error(`Failed to parse columns in mock INSERT: ${sql}`);
@@ -125,23 +124,23 @@ async function mockExecute(sql, params = []) {
         created_at: oldCreatedAt,
         updated_at: new Date()
       };
-      return [{ insertId: 0, affectedRows: 1 }];
+      return { rowCount: 1 };
     } else {
       const newId = profileIdCounter++;
       rowObj.id = newId;
       rowObj.created_at = new Date();
       rowObj.updated_at = new Date();
       memoryProfiles.push(rowObj);
-      return [{ insertId: newId, affectedRows: 1 }];
+      return { rowCount: 1 };
     }
   }
 
-  // 9. DELETE FROM repositories WHERE profile_id = ?
-  if (normalizedSql.startsWith('DELETE FROM repositories WHERE profile_id = ?')) {
+  // 9. DELETE FROM repositories WHERE profile_id = $1
+  if (normalizedSql.startsWith('DELETE FROM repositories WHERE profile_id = $1')) {
     const profileId = parseInt(params[0], 10);
     const originalLength = memoryRepositories.length;
     memoryRepositories = memoryRepositories.filter(r => r.profile_id !== profileId);
-    return [{ affectedRows: originalLength - memoryRepositories.length }];
+    return { rowCount: originalLength - memoryRepositories.length };
   }
 
   // 10. INSERT INTO repositories (...) VALUES ...
@@ -158,15 +157,15 @@ async function mockExecute(sql, params = []) {
       }
       memoryRepositories.push(rowObj);
     }
-    return [{ affectedRows: numRows }];
+    return { rowCount: numRows };
   }
 
-  // 11. DELETE FROM language_stats WHERE profile_id = ?
-  if (normalizedSql.startsWith('DELETE FROM language_stats WHERE profile_id = ?')) {
+  // 11. DELETE FROM language_stats WHERE profile_id = $1
+  if (normalizedSql.startsWith('DELETE FROM language_stats WHERE profile_id = $1')) {
     const profileId = parseInt(params[0], 10);
     const originalLength = memoryLanguageStats.length;
     memoryLanguageStats = memoryLanguageStats.filter(l => l.profile_id !== profileId);
-    return [{ affectedRows: originalLength - memoryLanguageStats.length }];
+    return { rowCount: originalLength - memoryLanguageStats.length };
   }
 
   // 12. INSERT INTO language_stats (profile_id, language, repo_count) VALUES ...
@@ -184,20 +183,20 @@ async function mockExecute(sql, params = []) {
         repo_count
       });
     }
-    return [{ affectedRows: numRows }];
+    return { rowCount: numRows };
   }
 
-  // 13. DELETE FROM profiles WHERE github_username = ?
-  if (normalizedSql.startsWith('DELETE FROM profiles WHERE github_username = ?')) {
+  // 13. DELETE FROM profiles WHERE github_username = $1
+  if (normalizedSql.startsWith('DELETE FROM profiles WHERE github_username = $1')) {
     const username = params[0].toLowerCase();
     const profile = memoryProfiles.find(p => p.github_username.toLowerCase() === username);
     if (profile) {
       memoryProfiles = memoryProfiles.filter(p => p.id !== profile.id);
       memoryRepositories = memoryRepositories.filter(r => r.profile_id !== profile.id);
       memoryLanguageStats = memoryLanguageStats.filter(l => l.profile_id !== profile.id);
-      return [{ affectedRows: 1 }];
+      return { rowCount: 1 };
     }
-    return [{ affectedRows: 0 }];
+    return { rowCount: 0 };
   }
 
   throw new Error(`Mock SQL execute not implemented for: ${sql}`);
@@ -208,17 +207,11 @@ async function mockExecute(sql, params = []) {
  */
 function mockGetConnection() {
   return {
-    async execute(sql, params) {
+    async query(sql, params) {
       return mockExecute(sql, params);
     },
-    async beginTransaction() {
-      // Mock transaction, no-op
-    },
-    async commit() {
-      // Mock transaction, no-op
-    },
-    async rollback() {
-      // Mock transaction, no-op
+    async query(sql, params) {
+      return mockExecute(sql, params);
     },
     release() {
       // Mock connection release, no-op
@@ -226,52 +219,27 @@ function mockGetConnection() {
   };
 }
 
-// Create MySQL database connection pool
-const realPool = mysql.createPool({
-  host:               process.env.DB_HOST     || 'localhost',
-  port:               parseInt(process.env.DB_PORT || '3306', 10),
-  user:               process.env.DB_USER     || 'root',
-  password:           process.env.DB_PASSWORD || '',
-  database:           process.env.DB_NAME     || 'github_analyzer',
-  waitForConnections: true,
-  connectionLimit:    10,
-  queueLimit:         0,
-  timezone:           '+00:00',
-  dateStrings:        false,
+// Create PostgreSQL connection pool
+const realPool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432', 10),
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'github_analyzer',
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
-
-// Wrapper Connection for real pool
-function wrapConnection(conn) {
-  return {
-    execute(sql, params) {
-      return conn.execute(sql, params);
-    },
-    beginTransaction() {
-      return conn.beginTransaction();
-    },
-    commit() {
-      return conn.commit();
-    },
-    rollback() {
-      return conn.rollback();
-    },
-    release() {
-      return conn.release();
-    }
-  };
-}
 
 // Proxy/Wrapper pool object
 const pool = {
-  async execute(sql, params) {
+  async query(sql, params) {
     if (useMock) {
       return mockExecute(sql, params);
     }
     try {
-      return await realPool.execute(sql, params);
+      return await realPool.query(sql, params);
     } catch (err) {
       if (isConnectionError(err)) {
-        console.warn(`\n⚠️  [DATABASE] MySQL connection failed: ${err.message}`);
+        console.warn(`\n⚠️  [DATABASE] PostgreSQL connection failed: ${err.message}`);
         console.warn(`👉  [DATABASE] Switching to In-Memory Database Fallback. All profiles will be stored in RAM.\n`);
         useMock = true;
         return mockExecute(sql, params);
@@ -284,11 +252,18 @@ const pool = {
       return mockGetConnection();
     }
     try {
-      const conn = await realPool.getConnection();
-      return wrapConnection(conn);
+      const client = await realPool.connect();
+      return {
+        async query(sql, params) {
+          return client.query(sql, params);
+        },
+        release() {
+          client.release();
+        }
+      };
     } catch (err) {
       if (isConnectionError(err)) {
-        console.warn(`\n⚠️  [DATABASE] MySQL connection failed: ${err.message}`);
+        console.warn(`\n⚠️  [DATABASE] PostgreSQL connection failed: ${err.message}`);
         console.warn(`👉  [DATABASE] Switching to In-Memory Database Fallback. All profiles will be stored in RAM.\n`);
         useMock = true;
         return mockGetConnection();
@@ -299,16 +274,16 @@ const pool = {
 };
 
 /**
- * Test connection to MySQL database, switching to mock database if connection fails.
+ * Test connection to PostgreSQL database, switching to mock database if connection fails.
  */
 async function testConnection() {
   if (useMock) return;
   try {
-    const conn = await realPool.getConnection();
-    conn.release();
+    const result = await realPool.query('SELECT NOW()');
+    console.log('✅ [DATABASE] Connected to PostgreSQL');
   } catch (err) {
     if (isConnectionError(err)) {
-      console.warn(`\n⚠️  [DATABASE] MySQL connection test failed: ${err.message}`);
+      console.warn(`\n⚠️  [DATABASE] PostgreSQL connection test failed: ${err.message}`);
       console.warn(`👉  [DATABASE] Switching to In-Memory Database Fallback.\n`);
       useMock = true;
       return;
@@ -321,7 +296,7 @@ async function testConnection() {
  * Returns the current database running mode
  */
 function getDbMode() {
-  return useMock ? 'in-memory-fallback' : 'mysql';
+  return useMock ? 'in-memory-fallback' : 'postgresql';
 }
 
 module.exports = { pool, testConnection, getDbMode };

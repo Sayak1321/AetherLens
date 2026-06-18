@@ -20,27 +20,28 @@ function assertValid(req) {
 
 /**
  * Fetch a full stored profile (profile + repos + language stats) by profile id.
- * @param {Object} conn  mysql2 connection
+ * @param {Object} client  postgres client
  * @param {number} profileId
  */
-async function fetchFullProfile(conn, profileId) {
-  const [[profile]] = await conn.execute(
-    'SELECT * FROM profiles WHERE id = ?',
+async function fetchFullProfile(client, profileId) {
+  const profileResult = await client.query(
+    'SELECT * FROM profiles WHERE id = $1',
     [profileId]
   );
+  const profile = profileResult.rows[0];
   if (!profile) return null;
 
-  const [repos] = await conn.execute(
-    'SELECT * FROM repositories WHERE profile_id = ? ORDER BY stars DESC',
+  const reposResult = await client.query(
+    'SELECT * FROM repositories WHERE profile_id = $1 ORDER BY stars DESC',
     [profileId]
   );
 
-  const [languages] = await conn.execute(
-    'SELECT language, repo_count FROM language_stats WHERE profile_id = ? ORDER BY repo_count DESC',
+  const langsResult = await client.query(
+    'SELECT language, repo_count FROM language_stats WHERE profile_id = $1 ORDER BY repo_count DESC',
     [profileId]
   );
 
-  return { ...profile, repositories: repos, language_stats: languages };
+  return { ...profile, repositories: reposResult.rows, language_stats: langsResult.rows };
 }
 
 /**
@@ -55,76 +56,68 @@ async function persistAnalysis(username, ghUser, repos) {
   const profilePayload  = analysisService.buildProfilePayload(ghUser, repos);
   const languageStats   = analysisService.computeLanguageStats(repos);
 
-  const conn = await pool.getConnection();
+  const client = await pool.getConnection();
   try {
-    await conn.beginTransaction();
+    await client.query('BEGIN');
 
     // ── Upsert profile ──────────────────────────────────────────────────────
     const profileCols = Object.keys(profilePayload);
     const profileVals = Object.values(profilePayload);
 
-    // Build "col = VALUES(col)" pairs for ON DUPLICATE KEY UPDATE
+    // Build placeholders: $1, $2, $3, etc.
+    const placeholders = profileCols.map((_, i) => `$${i + 1}`).join(', ');
+
+    // Build "col = EXCLUDED.col" pairs for ON CONFLICT ... DO UPDATE
     const updateClauses = profileCols
-      .filter((c) => c !== 'github_id') // don't update the unique key itself
-      .map((c) => `${c} = VALUES(${c})`)
+      .filter((c) => c !== 'github_id') // don't update the unique key
+      .map((c) => `${c} = EXCLUDED.${c}`)
       .join(', ');
 
-    const [upsertResult] = await conn.execute(
-      `INSERT INTO profiles (${profileCols.join(', ')})
-       VALUES (${profileCols.map(() => '?').join(', ')})
-       ON DUPLICATE KEY UPDATE ${updateClauses}`,
-      profileVals
-    );
+    const upsertQuery = `
+      INSERT INTO profiles (${profileCols.join(', ')})
+      VALUES (${placeholders})
+      ON CONFLICT (github_id) DO UPDATE SET ${updateClauses}
+      RETURNING id
+    `;
 
-    // insertId = 0 on UPDATE; retrieve real id
-    let profileId = upsertResult.insertId;
-    if (!profileId) {
-      const [[row]] = await conn.execute(
-        'SELECT id FROM profiles WHERE github_username = ?',
-        [username]
-      );
-      profileId = row.id;
-    }
+    const upsertResult = await client.query(upsertQuery, profileVals);
+    const profileId = upsertResult.rows[0].id;
 
     // ── Replace repos ────────────────────────────────────────────────────────
-    await conn.execute('DELETE FROM repositories WHERE profile_id = ?', [profileId]);
+    await client.query('DELETE FROM repositories WHERE profile_id = $1', [profileId]);
 
     if (repos.length > 0) {
       const repoPayloads = analysisService.buildRepoPayloads(profileId, repos);
       const repoCols = Object.keys(repoPayloads[0]);
 
-      const repoPlaceholders = repoPayloads.map(() => `(${repoCols.map(() => '?').join(', ')})`).join(', ');
-      const repoValues = repoPayloads.flatMap(Object.values);
-
-      await conn.execute(
-        `INSERT INTO repositories (${repoCols.join(', ')}) VALUES ${repoPlaceholders}`,
-        repoValues
-      );
+      for (let i = 0; i < repoPayloads.length; i++) {
+        const repoVals = Object.values(repoPayloads[i]);
+        const repoPlaceholders = repoVals.map((_, j) => `$${j + 1}`).join(', ');
+        const repoQuery = `INSERT INTO repositories (${repoCols.join(', ')}) VALUES (${repoPlaceholders})`;
+        await client.query(repoQuery, repoVals);
+      }
     }
 
     // ── Replace language stats ───────────────────────────────────────────────
-    await conn.execute('DELETE FROM language_stats WHERE profile_id = ?', [profileId]);
+    await client.query('DELETE FROM language_stats WHERE profile_id = $1', [profileId]);
 
     if (languageStats.length > 0) {
-      const langPlaceholders = languageStats.map(() => '(?, ?, ?)').join(', ');
-      const langValues = languageStats.flatMap(({ language, repo_count }) => [
-        profileId,
-        language,
-        repo_count,
-      ]);
-      await conn.execute(
-        `INSERT INTO language_stats (profile_id, language, repo_count) VALUES ${langPlaceholders}`,
-        langValues
-      );
+      for (let i = 0; i < languageStats.length; i++) {
+        const { language, repo_count } = languageStats[i];
+        await client.query(
+          'INSERT INTO language_stats (profile_id, language, repo_count) VALUES ($1, $2, $3)',
+          [profileId, language, repo_count]
+        );
+      }
     }
 
-    await conn.commit();
-    return await fetchFullProfile(conn, profileId);
+    await client.query('COMMIT');
+    return await fetchFullProfile(client, profileId);
   } catch (err) {
-    await conn.rollback();
+    await client.query('ROLLBACK');
     throw err;
   } finally {
-    conn.release();
+    client.release();
   }
 }
 
@@ -146,11 +139,11 @@ async function analyzeProfile(req, res, next) {
     const { username } = req.body;
 
     // Check if the profile already exists in our database
-    const [[existing]] = await pool.execute(
-      'SELECT id FROM profiles WHERE github_username = ?',
+    const existing = await pool.query(
+      'SELECT id FROM profiles WHERE github_username = $1',
       [username]
     );
-    const isNew = !existing;
+    const isNew = existing.rows.length === 0;
 
     const [ghUser, repos] = await Promise.all([
       githubService.fetchUserProfile(username),
@@ -193,12 +186,14 @@ async function getAllProfiles(req, res, next) {
     ]);
     const sort = ALLOWED_SORT.has(req.query.sort) ? req.query.sort : 'activity_score';
 
-    const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM profiles');
+    const totalResult = await pool.query('SELECT COUNT(*) AS total FROM profiles');
+    const total = parseInt(totalResult.rows[0].total, 10);
 
-    // Fetch all profiles without ORDER BY (to avoid prepared statement issues with column names)
-    const [allProfiles] = await pool.execute(
+    // Fetch all profiles without ORDER BY (to avoid parameter issues)
+    const allProfilesResult = await pool.query(
       'SELECT id, github_username, name, avatar_url, location, public_repos, followers, following, total_stars, total_forks, activity_score, analyzed_at, created_at FROM profiles'
     );
+    const allProfiles = allProfilesResult.rows;
 
     // Sort in Node.js (client-side sorting)
     const sorted = allProfiles.sort((a, b) => {
@@ -240,10 +235,11 @@ async function getProfile(req, res, next) {
   try {
     const { username } = req.params;
 
-    const [[row]] = await pool.execute(
-      'SELECT id FROM profiles WHERE github_username = ?',
+    const result = await pool.query(
+      'SELECT id FROM profiles WHERE github_username = $1',
       [username]
     );
+    const row = result.rows[0];
 
     if (!row) {
       const err = new Error(`Profile '${username}' has not been analyzed yet. Use POST /api/profiles/analyze first.`);
@@ -251,12 +247,12 @@ async function getProfile(req, res, next) {
       throw err;
     }
 
-    const conn = await pool.getConnection();
+    const client = await pool.getConnection();
     try {
-      const fullProfile = await fetchFullProfile(conn, row.id);
+      const fullProfile = await fetchFullProfile(client, row.id);
       res.json({ success: true, data: fullProfile });
     } finally {
-      conn.release();
+      client.release();
     }
   } catch (err) {
     next(err);
@@ -273,10 +269,12 @@ async function refreshProfile(req, res, next) {
     const { username } = req.params;
 
     // Verify it exists in our DB first
-    const [[row]] = await pool.execute(
-      'SELECT id FROM profiles WHERE github_username = ?',
+    const result = await pool.query(
+      'SELECT id FROM profiles WHERE github_username = $1',
       [username]
     );
+    const row = result.rows[0];
+
     if (!row) {
       const err = new Error(`Profile '${username}' not found in database. Analyze it first with POST /api/profiles/analyze`);
       err.status = 404;
@@ -309,12 +307,12 @@ async function deleteProfile(req, res, next) {
   try {
     const { username } = req.params;
 
-    const [result] = await pool.execute(
-      'DELETE FROM profiles WHERE github_username = ?',
+    const result = await pool.query(
+      'DELETE FROM profiles WHERE github_username = $1',
       [username]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       const err = new Error(`Profile '${username}' not found`);
       err.status = 404;
       throw err;
@@ -350,22 +348,23 @@ async function compareProfiles(req, res, next) {
     }
 
     // Fetch all profiles from DB
-    const placeholders = usernameList.map(() => '?').join(', ');
-    const [rows] = await pool.execute(
+    const placeholders = usernameList.map((_, i) => `$${i + 1}`).join(', ');
+    const rowsResult = await pool.query(
       `SELECT id, github_username, name, avatar_url, location, public_repos, public_gists, followers, following, total_stars, total_forks, activity_score, analyzed_at FROM profiles WHERE github_username IN (${placeholders})`,
       usernameList
     );
+    const rows = rowsResult.rows;
 
     const foundNames   = rows.map((r) => r.github_username.toLowerCase());
     const missingNames = usernameList.filter((u) => !foundNames.includes(u));
 
     const languages = await Promise.all(
       rows.map(async (profile) => {
-        const [langs] = await pool.execute(
-          'SELECT language, repo_count FROM language_stats WHERE profile_id = ? ORDER BY repo_count DESC LIMIT 5',
+        const langsResult = await pool.query(
+          'SELECT language, repo_count FROM language_stats WHERE profile_id = $1 ORDER BY repo_count DESC LIMIT 5',
           [profile.id]
         );
-        return { username: profile.github_username, top_languages: langs };
+        return { username: profile.github_username, top_languages: langsResult.rows };
       })
     );
 

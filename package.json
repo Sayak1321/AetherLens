@@ -1,7 +1,7 @@
 {
   "name": "github-profile-analyzer",
   "version": "1.0.0",
-  "description": "A backend REST API that analyzes GitHub user profiles and stores insights in MySQL",
+  "description": "A backend REST API that analyzes GitHub user profiles and stores insights in PostgreSQL",
   "main": "src/app.js",
   "repository": {
     "type": "git",
@@ -16,7 +16,7 @@
     "github",
     "api",
     "analyzer",
-    "mysql",
+    "postgresql",
     "express"
   ],
   "author": "Sayak1321",
@@ -29,7 +29,7 @@
     "express-rate-limit": "^7.3.1",
     "express-validator": "^7.1.0",
     "morgan": "^1.10.0",
-    "mysql2": "^3.9.8"
+    "pg": "^8.11.3"
   },
   "devDependencies": {
     "jest": "^29.7.0",
@@ -37,4 +37,3 @@
     "supertest": "^7.0.0"
   }
 }
-

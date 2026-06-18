@@ -8,8 +8,8 @@ services:
     environment:
       - PORT=3000
       - DB_HOST=db
-      - DB_PORT=3306
-      - DB_USER=root
+      - DB_PORT=5432
+      - DB_USER=postgres
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
@@ -18,20 +18,19 @@ services:
         condition: service_healthy
 
   db:
-    image: mysql:8.0
-    # ports:
-    #   - "127.0.0.1:3306:3306" # Uncomment only if you need to connect from your host machine via SSH tunnel
+    image: postgres:15-alpine
     environment:
-      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
-      - MYSQL_DATABASE=${DB_NAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=postgres
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  mysql_data:
+  postgres_data:
