@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const path         = require('path');
 const express      = require('express');
 const morgan       = require('morgan');
 const cors         = require('cors');
@@ -12,6 +13,10 @@ const errorHandler       = require('./middleware/errorHandler');
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// Trust the first proxy (required on Vercel/reverse-proxied environments so
+// express-rate-limit can read X-Forwarded-For without throwing a ValidationError)
+app.set('trust proxy', 1);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global Middleware
@@ -58,7 +63,8 @@ app.use(generalLimiter);
 
 app.use(express.json());
 app.use(morgan('dev'));
-app.use(express.static('public'));
+// Absolute path so static files are found regardless of CWD (critical on Vercel)
+app.use(express.static(path.join(__dirname, '../public')));
 
 
 // ─────────────────────────────────────────────────────────────────────────────
