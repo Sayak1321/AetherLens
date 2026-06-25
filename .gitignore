@@ -66,4 +66,16 @@ build/Release
 # OS files
 .DS_Store
 Thumbs.db
-.walkthrough db deployment
+
+# Docker runtime data (postgres + pgadmin volumes)
+db/data/
+db/pgadmin/
+
+# Local deployment docs / walkthroughs (not needed in repo)
+deployment_guide
+walkthrough_db_deployment
+
+# Stale MySQL-era files (superseded by PostgreSQL/Supabase setup)
+db/schema.sql
+implementation_plan.md
+walkthrough.md
