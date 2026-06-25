@@ -1,10 +1,17 @@
-const { pool } = require('./db');
+const { pool, getDbMode } = require('./db');
 
 /**
- * Initialize database tables if they don't exist
- * This runs on app startup
+ * Initialize database tables if they don't exist.
+ * Skipped when running in in-memory mock mode — the mock manages its own
+ * in-memory tables and does not support DDL statements.
  */
 async function initializeDatabase() {
+  // Skip schema init in mock mode — DDL is not supported by the mock executor
+  if (getDbMode() === 'in-memory-fallback') {
+    console.log('ℹ️  [DATABASE] Running in-memory fallback — skipping schema init.\n');
+    return;
+  }
+
   try {
     console.log('🔧 [DATABASE] Initializing schema...');
 
@@ -76,6 +83,11 @@ async function initializeDatabase() {
 
     console.log('✅ [DATABASE] Schema initialized successfully\n');
   } catch (err) {
+    // If we fell back to mock during schema init, that's fine — mock has no schema
+    if (getDbMode() === 'in-memory-fallback') {
+      console.log('ℹ️  [DATABASE] Switched to in-memory fallback during schema init — schema not needed.\n');
+      return;
+    }
     console.error('❌ [DATABASE] Failed to initialize schema:', err.message);
     throw err;
   }
