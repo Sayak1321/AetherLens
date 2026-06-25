@@ -65,6 +65,25 @@ app.use(express.static('public'));
 // Health Check
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Ensure database tables exist (lazy-loaded schema initialization for Serverless)
+let dbInitialized = false;
+async function initDbIfNeeded() {
+  if (!dbInitialized) {
+    await initializeDatabase();
+    dbInitialized = true;
+  }
+}
+
+app.use(async (req, res, next) => {
+  try {
+    await initDbIfNeeded();
+    next();
+  } catch (err) {
+    console.error('❌ Database lazy initialization failed:', err.message);
+    next(err);
+  }
+});
+
 /**
  * GET /health
  * Checks database connectivity and GitHub API rate limit.
@@ -138,8 +157,8 @@ app.use(errorHandler);
 
 async function startApp() {
   try {
-    // Initialize database tables on startup
-    await initializeDatabase();
+    // Explicitly initialize database for local dev
+    await initDbIfNeeded();
     
     app.listen(PORT, () => {
       console.log(`\n🚀 GitHub Profile Analyzer API`);
@@ -153,6 +172,8 @@ async function startApp() {
   }
 }
 
-startApp();
+if (require.main === module) {
+  startApp();
+}
 
 module.exports = app; // Exported for testing and execution

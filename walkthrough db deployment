@@ -1,0 +1,42 @@
+# Migration and Deployment Walkthrough
+
+We have successfully completed all task items to migrate the database connection to Supabase and prepare the Express REST API for Vercel Serverless deployment.
+
+---
+
+## Changes Made
+
+### 1. Database Configuration
+Updated [db.js](file:///a:/antigravity/website/src/config/db.js) to dynamically support a single connection string `DATABASE_URL` (preferred for Supabase connection pooling) alongside individual parameters (used for local Docker setup). Added standard SSL configuration (`ssl: { rejectUnauthorized: false }`) which is mandatory for Supabase.
+
+### 2. Express Serverless Lifecycle
+Adapted [app.js](file:///a:/antigravity/website/src/app.js) to be fully serverless-friendly:
+- Wrapped the local listener `app.listen()` inside a check `if (require.main === module)`. When deployed on Vercel, the file is required as a library and will not listen on ports, preventing serverless execution blocks or crashes.
+- Implemented a lazy initialization middleware that automatically sets up database tables on the very first incoming request (cold start) if they haven't been created yet, bypassing subsequent checks.
+
+### 3. Vercel Serverless Function Handler
+Created a new entrypoint [api/index.js](file:///a:/antigravity/website/api/index.js) that exports the Express `app`. Vercel automatically wraps this export in a serverless function handler.
+
+### 4. Vercel Routing Rules
+Created [vercel.json](file:///a:/antigravity/website/vercel.json) in the workspace root to define rewrites:
+- API routes `/api/:path*` and `/health` map directly to the backend handler `/api/index.js`.
+- Static files at root `/` and general resources `/index.css` / `/app.js` serve files statically from the `/public` folder.
+
+---
+
+## How to Deploy to Vercel & Supabase
+
+### Phase 1: Set up Supabase
+1. Create a project in [Supabase](https://supabase.com).
+2. Go to **SQL Editor**, paste the SQL from [db/init.sql](file:///a:/antigravity/website/db/init.sql), and run it to set up the tables and indexes.
+3. Go to **Project Settings -> Database** and copy the **URI Connection String** under connection pooling (using port `6543`).
+
+### Phase 2: Deploy to Vercel
+1. Ensure the Vercel CLI is installed, or hook up your GitHub repository to Vercel.
+2. In the Vercel dashboard, create a new project and import this repository.
+3. Add the following **Environment Variables** in Vercel:
+   - `DATABASE_URL`: `postgresql://postgres.[YOUR_PROJECT]:[PASSWORD]@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require`
+   - `DB_SSL`: `true`
+   - `GITHUB_TOKEN`: `[Your GitHub Personal Access Token]` (Optional, but recommended to prevent API rate limiting)
+4. Click **Deploy**. Vercel will build and serve your static frontend and route API calls to the serverless function.
+5. Verify the deployment by testing the health check `/health` on your live URL.
