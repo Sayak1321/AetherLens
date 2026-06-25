@@ -22,13 +22,20 @@ app.set('trust proxy', 1);
 // Global Middleware
 // ─────────────────────────────────────────────────────────────────────────────
 
+// If ALLOWED_ORIGINS is not configured, allow all origins (open API).
+// Set ALLOWED_ORIGINS=https://your-domain.com in production to lock it down.
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000'];
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : null; // null = allow all
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow requests with no origin (server-to-server, curl, mobile)
+    if (!origin) return callback(null, true);
+    // Allow all when not explicitly configured
+    if (!allowedOrigins) return callback(null, true);
+    // Check against configured whitelist
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   }
 }));
